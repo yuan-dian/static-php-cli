@@ -6,14 +6,14 @@ on:
       version:
         required: true
         description: php version to compile
-        default: '8.2'
+        default: '8.4'
         type: choice
         options:
+          - '8.4'
           - '8.3'
           - '8.2'
           - '8.1'
           - '8.0'
-          - '7.4'
       build-cli:
         description: build cli binary
         default: true

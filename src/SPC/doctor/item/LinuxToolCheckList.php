@@ -17,7 +17,7 @@ class LinuxToolCheckList
 
     public const TOOLS_ALPINE = [
         'make', 'bison', 'flex',
-        'git', 'autoconf', 'automake',
+        'git', 'autoconf', 'automake', 'gettext-dev',
         'tar', 'unzip', 'gzip',
         'bzip2', 'cmake', 'gcc',
         'g++', 'patch', 'binutils-gold',
@@ -26,7 +26,7 @@ class LinuxToolCheckList
 
     public const TOOLS_DEBIAN = [
         'make', 'bison', 'flex',
-        'git', 'autoconf', 'automake',
+        'git', 'autoconf', 'automake', 'autopoint',
         'tar', 'unzip', 'gzip',
         'bzip2', 'cmake', 'patch',
         'xz', 'libtoolize',
@@ -37,7 +37,7 @@ class LinuxToolCheckList
         'git', 'autoconf', 'automake',
         'tar', 'unzip', 'gzip', 'gcc',
         'bzip2', 'cmake', 'patch',
-        'xz',
+        'xz', 'libtool', 'gettext-devel',
     ];
 
     public const TOOLS_ARCH = [
@@ -47,6 +47,7 @@ class LinuxToolCheckList
     private const PROVIDED_COMMAND = [
         'binutils-gold' => 'ld.gold',
         'base-devel' => 'automake',
+        'gettext-devel' => 'gettext',
     ];
 
     /** @noinspection PhpUnused */
@@ -58,6 +59,7 @@ class LinuxToolCheckList
         $required = match ($distro['dist']) {
             'alpine' => self::TOOLS_ALPINE,
             'redhat' => self::TOOLS_RHEL,
+            'centos' => array_merge(self::TOOLS_RHEL, ['perl-IPC-Cmd']),
             'arch' => self::TOOLS_ARCH,
             default => self::TOOLS_DEBIAN,
         };
@@ -72,6 +74,7 @@ class LinuxToolCheckList
                 'ubuntu',
                 'alpine',
                 'redhat',
+                'centos',
                 'Deepin',
                 'arch',
                 'debian' => CheckResult::fail(implode(', ', $missing) . ' not installed on your system', 'install-linux-tools', [$distro, $missing]),
@@ -121,13 +124,14 @@ class LinuxToolCheckList
             'ubuntu', 'debian', 'Deepin' => 'apt-get install -y',
             'alpine' => 'apk add',
             'redhat' => 'dnf install -y',
+            'centos' => 'yum install -y',
             'arch' => 'pacman -S --noconfirm',
             default => throw new RuntimeException('Current linux distro does not have an auto-install script for musl packages yet.'),
         };
         $prefix = '';
-        if (get_current_user() !== 'root') {
+        if (($user = exec('whoami')) !== 'root') {
             $prefix = 'sudo ';
-            logger()->warning('Current user is not root, using sudo for running command');
+            logger()->warning('Current user (' . $user . ') is not root, using sudo for running command');
         }
         try {
             $is_debian = in_array($distro['dist'], ['debian', 'ubuntu', 'Deepin']);

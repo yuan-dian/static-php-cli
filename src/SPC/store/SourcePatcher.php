@@ -6,6 +6,7 @@ namespace SPC\store;
 
 use SPC\builder\BuilderBase;
 use SPC\builder\linux\LinuxBuilder;
+use SPC\builder\linux\SystemUtil;
 use SPC\builder\unix\UnixBuilderBase;
 use SPC\exception\FileSystemException;
 use SPC\exception\RuntimeException;
@@ -25,6 +26,11 @@ class SourcePatcher
         FileSystem::addSourceExtractHook('pdo_sqlsrv', [SourcePatcher::class, 'patchSQLSRVWin32']);
         FileSystem::addSourceExtractHook('yaml', [SourcePatcher::class, 'patchYamlWin32']);
         FileSystem::addSourceExtractHook('libyaml', [SourcePatcher::class, 'patchLibYaml']);
+        FileSystem::addSourceExtractHook('php-src', [SourcePatcher::class, 'patchImapLicense']);
+        FileSystem::addSourceExtractHook('ext-imagick', [SourcePatcher::class, 'patchImagickWith84']);
+        FileSystem::addSourceExtractHook('libaom', [SourcePatcher::class, 'patchLibaomForAlpine']);
+        FileSystem::addSourceExtractHook('attr', [SourcePatcher::class, 'patchAttrForAlpine']);
+        FileSystem::addSourceExtractHook('gmssl', [SourcePatcher::class, 'patchGMSSL']);
     }
 
     /**
@@ -40,6 +46,11 @@ class SourcePatcher
         foreach ($builder->getExts() as $ext) {
             if ($ext->patchBeforeBuildconf() === true) {
                 logger()->info('Extension [' . $ext->getName() . '] patched before buildconf');
+            }
+        }
+        foreach ($builder->getLibs() as $lib) {
+            if ($lib->patchBeforeBuildconf() === true) {
+                logger()->info('Library [' . $lib->getName() . '] patched before buildconf');
             }
         }
         // patch windows php 8.1 bug
@@ -80,8 +91,16 @@ class SourcePatcher
                 logger()->info('Extension [' . $ext->getName() . '] patched before configure');
             }
         }
+        foreach ($builder->getLibs() as $lib) {
+            if ($lib->patchBeforeConfigure() === true) {
+                logger()->info('Library [' . $lib->getName() . '] patched before configure');
+            }
+        }
         // patch capstone
         FileSystem::replaceFileRegex(SOURCE_PATH . '/php-src/configure', '/have_capstone="yes"/', 'have_capstone="no"');
+        if ($builder instanceof LinuxBuilder && getenv('SPC_LIBC') === 'glibc') {
+            FileSystem::replaceFileStr(SOURCE_PATH . '/php-src/Zend/zend_operators.h', '# define ZEND_USE_ASM_ARITHMETIC 1', '# define ZEND_USE_ASM_ARITHMETIC 0');
+        }
     }
 
     /**
@@ -239,6 +258,11 @@ class SourcePatcher
                 logger()->info('Extension [' . $ext->getName() . '] patched before make');
             }
         }
+        foreach ($builder->getLibs() as $lib) {
+            if ($lib->patchBeforeMake() === true) {
+                logger()->info('Library [' . $lib->getName() . '] patched before make');
+            }
+        }
     }
 
     /**
@@ -371,6 +395,58 @@ class SourcePatcher
     }
 
     /**
+     * Patch imap license file for PHP < 8.4
+     */
+    public static function patchImapLicense(): bool
+    {
+        if (!file_exists(SOURCE_PATH . '/php-src/ext/imap/LICENSE') && is_dir(SOURCE_PATH . '/php-src/ext/imap')) {
+            file_put_contents(SOURCE_PATH . '/php-src/ext/imap/LICENSE', file_get_contents(ROOT_DIR . '/src/globals/extra/Apache_LICENSE'));
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Patch imagick for PHP 8.4
+     */
+    public static function patchImagickWith84(): bool
+    {
+        // match imagick version id
+        $file = SOURCE_PATH . '/php-src/ext/imagick/php_imagick.h';
+        if (!file_exists($file)) {
+            return false;
+        }
+        $content = file_get_contents($file);
+        if (preg_match('/#define PHP_IMAGICK_EXTNUM\s+(\d+)/', $content, $match) === 0) {
+            return false;
+        }
+        $extnum = intval($match[1]);
+        if ($extnum < 30800) {
+            SourcePatcher::patchFile('imagick_php84_before_30800.patch', SOURCE_PATH . '/php-src/ext/imagick');
+            return true;
+        }
+        return false;
+    }
+
+    public static function patchLibaomForAlpine(): bool
+    {
+        if (PHP_OS_FAMILY === 'Linux' && SystemUtil::isMuslDist()) {
+            SourcePatcher::patchFile('libaom_posix_implict.patch', SOURCE_PATH . '/libaom');
+            return true;
+        }
+        return false;
+    }
+
+    public static function patchAttrForAlpine(): bool
+    {
+        if (PHP_OS_FAMILY === 'Linux' && SystemUtil::isMuslDist() || PHP_OS_FAMILY === 'Darwin') {
+            SourcePatcher::patchFile('attr_alpine_gethostname.patch', SOURCE_PATH . '/attr');
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * Patch cli SAPI Makefile for Windows.
      *
      * @throws FileSystemException
@@ -416,7 +492,7 @@ class SourcePatcher
                 return true;
             }
             if ($ver_id < 80200) {
-                self::patchFile('spc_fix_libxml2_12_php81.patch', SOURCE_PATH . '/php-src');
+                // self::patchFile('spc_fix_libxml2_12_php81.patch', SOURCE_PATH . '/php-src');
                 self::patchFile('spc_fix_alpine_build_php80.patch', SOURCE_PATH . '/php-src');
                 return true;
             }
@@ -478,5 +554,11 @@ class SourcePatcher
         if (file_exists(SOURCE_PATH . '\php-src\sapi\micro\php_micro.c.win32bak')) {
             rename(SOURCE_PATH . '\php-src\sapi\micro\php_micro.c.win32bak', SOURCE_PATH . '\php-src\sapi\micro\php_micro.c');
         }
+    }
+
+    public static function patchGMSSL(): void
+    {
+        FileSystem::replaceFileStr(SOURCE_PATH . '/gmssl/src/hex.c', 'unsigned char *OPENSSL_hexstr2buf(const char *str, size_t *len)', 'unsigned char *GMSSL_hexstr2buf(const char *str, size_t *len)');
+        FileSystem::replaceFileStr(SOURCE_PATH . '/gmssl/src/hex.c', 'OPENSSL_hexchar2int', 'GMSSL_hexchar2int');
     }
 }

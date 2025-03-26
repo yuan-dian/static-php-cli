@@ -10,6 +10,7 @@ use Psr\Log\LogLevel;
 use SPC\ConsoleApplication;
 use SPC\exception\ExceptionHandler;
 use SPC\exception\WrongUsageException;
+use SPC\util\GlobalEnvManager;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputInterface;
@@ -45,7 +46,6 @@ abstract class BaseCommand extends Command
                 E_USER_ERROR => ['PHP Error: ', 'error'],
                 E_USER_WARNING => ['PHP Warning: ', 'warning'],
                 E_USER_NOTICE => ['PHP Notice: ', 'notice'],
-                E_STRICT => ['PHP Strict: ', 'notice'],
                 E_RECOVERABLE_ERROR => ['PHP Recoverable Error: ', 'error'],
                 E_DEPRECATED => ['PHP Deprecated: ', 'notice'],
                 E_USER_DEPRECATED => ['PHP User Deprecated: ', 'notice'],
@@ -55,7 +55,7 @@ abstract class BaseCommand extends Command
             logger()->{$level_tip[1]}($error);
             // 如果 return false 则错误会继续递交给 PHP 标准错误处理
             return true;
-        }, E_ALL | E_STRICT);
+        });
         $version = ConsoleApplication::VERSION;
         if (!$this->no_motd) {
             echo "     _        _   _                 _           
@@ -94,6 +94,11 @@ abstract class BaseCommand extends Command
             $question = new ConfirmationQuestion($prompt->label . $case, $prompt->default);
             return $helper->ask($input, $output, $question);
         });
+
+        // init GlobalEnv
+        if (!$this instanceof BuildCommand) {
+            GlobalEnvManager::init();
+        }
         if ($this->shouldExecute()) {
             try {
                 // show raw argv list for logger()->debug
@@ -148,24 +153,24 @@ abstract class BaseCommand extends Command
     /**
      * Parse extension list from string, replace alias and filter internal extensions.
      *
-     * @param string $ext_list Extension string list, e.g. "mbstring,posix,sockets"
+     * @param array|string $ext_list Extension string list, e.g. "mbstring,posix,sockets" or array
      */
-    protected function parseExtensionList(string $ext_list): array
+    protected function parseExtensionList(array|string $ext_list): array
     {
         // replace alias
         $ls = array_map(function ($x) {
             $lower = strtolower(trim($x));
             if (isset(SPC_EXTENSION_ALIAS[$lower])) {
-                logger()->notice("Extension [{$lower}] is an alias of [" . SPC_EXTENSION_ALIAS[$lower] . '], it will be replaced.');
+                logger()->debug("Extension [{$lower}] is an alias of [" . SPC_EXTENSION_ALIAS[$lower] . '], it will be replaced.');
                 return SPC_EXTENSION_ALIAS[$lower];
             }
             return $lower;
-        }, explode(',', $ext_list));
+        }, is_array($ext_list) ? $ext_list : explode(',', $ext_list));
 
         // filter internals
         return array_values(array_filter($ls, function ($x) {
             if (in_array($x, SPC_INTERNAL_EXTENSIONS)) {
-                logger()->warning("Extension [{$x}] is an builtin extension, it will be ignored.");
+                logger()->debug("Extension [{$x}] is an builtin extension, it will be ignored.");
                 return false;
             }
             return true;

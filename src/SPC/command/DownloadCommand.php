@@ -30,7 +30,7 @@ class DownloadCommand extends BaseCommand
         $this->addArgument('sources', InputArgument::REQUIRED, 'The sources will be compiled, comma separated');
         $this->addOption('shallow-clone', null, null, 'Clone shallow');
         $this->addOption('with-openssl11', null, null, 'Use openssl 1.1');
-        $this->addOption('with-php', null, InputOption::VALUE_REQUIRED, 'version in major.minor format (default 8.2)', '8.2');
+        $this->addOption('with-php', null, InputOption::VALUE_REQUIRED, 'version in major.minor format (default 8.4)', '8.4');
         $this->addOption('clean', null, null, 'Clean old download cache and source before fetch');
         $this->addOption('all', 'A', null, 'Fetch all sources that static-php-cli needed');
         $this->addOption('custom-url', 'U', InputOption::VALUE_IS_ARRAY | InputOption::VALUE_REQUIRED, 'Specify custom source download url, e.g "php-src:https://downloads.php.net/~eric/php-8.3.0beta1.tar.gz"');
@@ -72,10 +72,6 @@ class DownloadCommand extends BaseCommand
         if ($for_ext = $input->getOption('for-extensions')) {
             $ext = $this->parseExtensionList($for_ext);
             $sources = $this->calculateSourcesByExt($ext, !$input->getOption('without-suggestions'));
-            if (PHP_OS_FAMILY !== 'Windows') {
-                array_unshift($sources, 'pkg-config');
-            }
-            array_unshift($sources, 'php-src', 'micro');
             $final_sources = array_merge($final_sources, array_diff($sources, $final_sources));
         }
         // mode: --for-libs
@@ -122,7 +118,7 @@ class DownloadCommand extends BaseCommand
             }
 
             // Define PHP major version
-            $ver = $this->php_major_ver = $this->getOption('with-php') ?? '8.1';
+            $ver = $this->php_major_ver = $this->getOption('with-php');
             define('SPC_BUILD_PHP_VERSION', $ver);
             // match x.y
             preg_match('/^\d+\.\d+$/', $ver, $matches);
@@ -323,7 +319,10 @@ class DownloadCommand extends BaseCommand
             }
         }
         foreach ($libraries as $library) {
-            $sources[] = Config::getLib($library, 'source');
+            $source = Config::getLib($library, 'source');
+            if ($source !== null) {
+                $sources[] = $source;
+            }
         }
         return array_values(array_unique($sources));
     }

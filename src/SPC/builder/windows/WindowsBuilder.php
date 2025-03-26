@@ -38,7 +38,7 @@ class WindowsBuilder extends BuilderBase
         // ---------- set necessary options ----------
         // set sdk (require visual studio 16 or 17)
         $vs = SystemUtil::findVisualStudio()['version'];
-        $this->sdk_prefix = PHP_SDK_PATH . "\\phpsdk-{$vs}-x64.bat -t";
+        $this->sdk_prefix = getenv('PHP_SDK_PATH') . "\\phpsdk-{$vs}-x64.bat -t";
 
         // set zts
         $this->zts = $this->getOption('enable-zts', false);
@@ -95,13 +95,17 @@ class WindowsBuilder extends BuilderBase
 
         if (($logo = $this->getOption('with-micro-logo')) !== null) {
             // realpath
-            $logo = realpath($logo);
+            // $logo = realpath($logo);
             $micro_logo = '--enable-micro-logo=' . $logo . ' ';
+            copy($logo, SOURCE_PATH . '\php-src\\' . $logo);
         } else {
             $micro_logo = '';
         }
 
         $micro_w32 = $this->getOption('enable-micro-win32') ? ' --enable-micro-win32=yes' : '';
+
+        $config_file_scan_dir = $this->getOption('with-config-file-scan-dir', false) ?
+            ('--with-config-file-scan-dir=' . $this->getOption('with-config-file-scan-dir') . ' ') : '';
 
         cmd()->cd(SOURCE_PATH . '\php-src')
             ->exec(
@@ -114,6 +118,7 @@ class WindowsBuilder extends BuilderBase
                 ($enableCli ? '--enable-cli=yes ' : '--enable-cli=no ') .
                 ($enableMicro ? ('--enable-micro=yes ' . $micro_logo . $micro_w32) : '--enable-micro=no ') .
                 ($enableEmbed ? '--enable-embed=yes ' : '--enable-embed=no ') .
+                $config_file_scan_dir .
                 "{$this->makeExtensionArgs()} " .
                 $zts .
                 '"'
@@ -232,6 +237,9 @@ class WindowsBuilder extends BuilderBase
 
         // add lib object for builder
         foreach ($sorted_libraries as $library) {
+            if (!in_array(Config::getLib($library, 'type', 'lib'), ['lib', 'package'])) {
+                continue;
+            }
             // if some libs are not supported (but in config "lib.json", throw exception)
             if (!isset($support_lib_list[$library])) {
                 throw new WrongUsageException('library [' . $library . '] is in the lib.json list but not supported to compile, but in the future I will support it!');
@@ -244,6 +252,7 @@ class WindowsBuilder extends BuilderBase
         foreach ($this->libs as $lib) {
             $lib->calcDependency();
         }
+        $this->lib_list = $sorted_libraries;
     }
 
     /**
@@ -272,7 +281,7 @@ class WindowsBuilder extends BuilderBase
         // sanity check for php-cli
         if (($build_target & BUILD_TARGET_CLI) === BUILD_TARGET_CLI) {
             logger()->info('running cli sanity check');
-            [$ret, $output] = cmd()->execWithResult(BUILD_ROOT_PATH . '\bin\php.exe -r "echo \"hello\";"');
+            [$ret, $output] = cmd()->execWithResult(BUILD_ROOT_PATH . '\bin\php.exe -n -r "echo \"hello\";"');
             if ($ret !== 0 || trim(implode('', $output)) !== 'hello') {
                 throw new RuntimeException('cli failed sanity check');
             }

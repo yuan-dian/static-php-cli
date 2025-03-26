@@ -43,7 +43,7 @@ swoole-hook-sqlite 与 `pdo_sqlite` 扩展冲突。如需使用 Swoole 和 `pdo_
 
 ## swow
 
-1. swow 仅支持 PHP >= 8.0 版本。
+1. swow 仅支持 PHP 8.0 ~ 8.4 版本。
 
 ## imap
 
@@ -70,7 +70,7 @@ bin/spc build gd --with-libs=freetype,libjpeg,libavif,libwebp --build-cli
 
 ## xdebug
 
-1. Xdebug 是一个 Zend 扩展，Xdebug 的功能依赖于 PHP 的 Zend 引擎和底层代码，如果要将其静态编译到 PHP 中，可能需要巨量的 patch 代码，这是不可行的。
+1. Xdebug 只能作为共享扩展构建。在 Linux 上，您需要使用带有 `SPC_LIBC=glibc` 的 static-php-cli，然后使用选项 `--with-php-config=/path/to/buildroot/bin/php-config` 从源代码编译 php-xdebug。
 2. macOS 平台可以通过在相同平台编译的 PHP 下编译一个 xdebug 扩展，并提取其中的 `xdebug.so` 文件，再在 static-php-cli 中使用 `--no-strip` 参数保留调试符号表，同时加入 `ffi` 扩展。
    编译的 `./php` 二进制可以通过指定 INI 配置并运行，例如`./php -d 'zend_extension=xdebug.so' your-code.php`。
 
@@ -113,7 +113,7 @@ pgsql 16.2 修复了这个 Bug，现在正常工作了。
 
 ## ffi
 
-1. 因为 Linux 系统的限制，虽然可以成功编译 ffi 扩展，但无法使用它加载其他 `so` 扩展。Linux 支持加载 so 扩展的前提是非静态编译，但动态编译和本项目的目的冲突。
+1. 因为 Linux 系统的限制，纯静态编译的状态下（spc 默认编译结果为纯静态）无法使用它加载其他 `so` 扩展。Linux 支持加载 so 扩展的前提是非静态编译。如果你需要使用 ffi 扩展，请参见 [编译 GNU libc 的 PHP](./build-with-glibc)。
 2. macOS 支持 ffi 扩展，但是部分内核下不包含调试符号时会出现错误。
 3. Windows 支持 ffi 扩展。
 
@@ -136,3 +136,9 @@ parallel 扩展只支持 PHP 8.0 及以上版本，并只支持 ZTS 构建（`--
 
 1. [SPX 扩展](https://github.com/NoiseByNorthwest/php-spx) 只支持非线程模式。
 2. SPX 目前不支持 Windows，且官方仓库也不支持静态编译，static-php-cli 使用了 [修改版本](https://github.com/static-php/php-spx)。
+
+## mimalloc
+
+1. 从技术上讲，这不是扩展，而是一个库。
+2. 在 Linux 或 macOS 上使用 `--with-libs="mimalloc"` 进行构建将覆盖默认分配器。
+3. 目前，这还处于实验阶段，但建议在线程环境中使用。

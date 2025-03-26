@@ -46,7 +46,7 @@ This extension contains an implementation of the coroutine environment for `pdo_
 
 ## swow
 
-1. Only PHP version >= 8.0 is supported.
+1. Only PHP 8.0 ~ 8.4 is supported.
 
 ## imap
 
@@ -76,8 +76,7 @@ and this extension cannot be compiled into php by static linking, so it cannot b
 
 ## xdebug
 
-1. Xdebug is a Zend extension. The functions of Xdebug depend on PHP's Zend engine and underlying code. 
-If you want to statically compile it into PHP, you may need a huge amount of patch code, which is not feasible.
+1. Xdebug is only buildable as a shared extension. On Linux, you need to use static-php-cli with SPC_LIBC=glibc and then compile php-xdebug from source with the option `--with-php-config=/path/to/buildroot/bin/php-config`.
 2. The macOS platform can compile an xdebug extension under PHP compiled on the same platform, 
 extract the `xdebug.so` file, and then use the `--no-strip` parameter in static-php-cli to retain the debug symbol table and add the `ffi` extension. 
 The compiled `./php` binary can be configured and run by specifying the INI, eg `./php -d 'zend_extension=/path/to/xdebug.so' your-code.php`.
@@ -123,8 +122,8 @@ For details on the solution, see [FAQ - Unable to use ssl](../faq/#unable-to-use
 
 ## ffi
 
-1. Linux not supported yet: Due to limitations of the Linux system, although the ffi extension can be compiled successfully, it cannot be used to load other `so` extensions. 
-   The prerequisite for Linux to support loading `so` extensions is dynamic compilation, but dynamic compilation conflicts with the purpose of this project.
+1. Due to the limitation of Linux system, you cannot use it to load other `so` extensions in the purely static compiled state (spc defaults to pure static compilation). 
+   Linux supports loading so extensions only if they are non-statically compiled. If you need to use the ffi extension, see [Compile PHP with GNU libc](./build-with-glibc).
 2. macOS supports the ffi extension, but errors will occur when some kernels do not contain debugging symbols.
 3. Windows x64 supports the ffi extension.
 
@@ -149,3 +148,9 @@ Parallel is only supported on PHP 8.0 ZTS and above.
 
 1. The [SPX extension](https://github.com/NoiseByNorthwest/php-spx) only supports NTS mode.
 2. SPX does not support Windows, and the official repository does not support static compilation. static-php-cli uses a [modified version](https://github.com/static-php/php-spx).
+
+## mimalloc
+
+1. This is not technically an extension, but a library.
+2. Building with `--with-libs="mimalloc"` on Linux or macOS will override the default allocator.
+3. This is experimental for now, but is recommended in threaded environments.

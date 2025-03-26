@@ -57,56 +57,6 @@ cd static-php-cli
 composer update
 ```
 
-### Use System PHP
-
-Below are some example commands for installing PHP and Composer in the system. 
-It is recommended to search for the specific installation method yourself or ask the AI search engine to obtain the answer, 
-which will not be elaborated here.
-
-```bash
-# [macOS], need install Homebrew first. See https://brew.sh/
-# Remember change your composer executable path. For M1/M2 Chip mac, "/opt/homebrew/bin/", for Intel mac, "/usr/local/bin/". Or add it to your own path.
-brew install php wget
-wget https://getcomposer.org/download/latest-stable/composer.phar -O /path/to/your/bin/composer && chmod +x /path/to/your/bin/composer
-
-# [Debian], you need to make sure your php version >= 8.1 and composer >= 2.0
-sudo apt install php-cli composer php-tokenizer
-
-# [Alpine]
-apk add bash file wget xz php81 php81-common php81-pcntl php81-tokenizer php81-phar php81-posix php81-xml composer
-```
-
-::: tip
-Currently, some versions of Ubuntu install older PHP versions, 
-so no installation commands are provided. If necessary, it is recommended to add software sources such as ppa first, 
-and then install the latest version of PHP and tokenizer, XML, and phar extensions.
-
-Older versions of Debian may have an older (<= 7.4) version of PHP installed by default, it is recommended to upgrade Debian first.
-:::
-
-### Use Docker
-
-If you don't want to install PHP and Composer runtime environment on your system, you can use the built-in Docker environment build script.
-
-```bash
-# To use directly, replace `bin/spc` with `bin/spc-alpine-docker` in all used commands
-bin/spc-alpine-docker
-```
-
-The first time the command is executed, `docker build` will be used to build a Docker image. 
-The default built Docker image is the `x86_64` architecture, and the image name is `cwcc-spc-x86_64`.
-
-If you want to build `aarch64` static-php-cli in `x86_64` environment, 
-you can use qemu to emulate the arm image to run Docker, but the speed will be very slow.
-Use command: `SPC_USE_ARCH=aarch64 bin/spc-alpine-docker`.
-
-If it prompts that sudo is required to run after running, 
-execute the following command once to grant static-php-cli permission to execute sudo:
-
-```bash
-export SPC_USE_SUDO=yes
-```
-
 ### Use Precompiled Static PHP Binaries
 
 If you don't want to use Docker and install PHP in the system, 
@@ -133,18 +83,68 @@ This script will download two files in total: `bin/php` and `bin/composer`. Afte
 it is equivalent to installing PHP in the system, you can directly Use commands such as `composer`, `php -v`, or directly use `bin/spc`.
 2. Direct call, such as executing static-php-cli command: `bin/php bin/spc --help`, executing Composer: `bin/php bin/composer update`.
 
+### Use Docker
+
+If you don't want to install PHP and Composer runtime environment on your system, you can use the built-in Docker environment build script.
+
+```bash
+# To use directly, replace `bin/spc` with `bin/spc-alpine-docker` in all used commands
+bin/spc-alpine-docker
+```
+
+The first time the command is executed, `docker build` will be used to build a Docker image.
+The default built Docker image is the `x86_64` architecture, and the image name is `cwcc-spc-x86_64`.
+
+If you want to build `aarch64` static-php-cli in `x86_64` environment,
+you can use qemu to emulate the arm image to run Docker, but the speed will be very slow.
+Use command: `SPC_USE_ARCH=aarch64 bin/spc-alpine-docker`.
+
+If it prompts that sudo is required to run after running,
+execute the following command once to grant static-php-cli permission to execute sudo:
+
+```bash
+export SPC_USE_SUDO=yes
+```
+
+### Use System PHP
+
+Below are some example commands for installing PHP and Composer in the system.
+It is recommended to search for the specific installation method yourself or ask the AI search engine to obtain the answer,
+which will not be elaborated here.
+
+```bash
+# [macOS], need install Homebrew first. See https://brew.sh/
+# Remember change your composer executable path. For M1/M2 Chip mac, "/opt/homebrew/bin/", for Intel mac, "/usr/local/bin/". Or add it to your own path.
+brew install php wget
+wget https://getcomposer.org/download/latest-stable/composer.phar -O /path/to/your/bin/composer && chmod +x /path/to/your/bin/composer
+
+# [Debian], you need to make sure your php version >= 8.1 and composer >= 2.0
+sudo apt install php-cli composer php-tokenizer
+
+# [Alpine]
+apk add bash file wget xz php81 php81-common php81-pcntl php81-tokenizer php81-phar php81-posix php81-xml composer
+```
+
+::: tip
+Currently, some versions of Ubuntu install older PHP versions,
+so no installation commands are provided. If necessary, it is recommended to add software sources such as ppa first,
+and then install the latest version of PHP and tokenizer, XML, and phar extensions.
+
+Older versions of Debian may have an older (<= 7.4) version of PHP installed by default, it is recommended to upgrade Debian first.
+:::
+
 ## Command - download
 
 Use the command `bin/spc download` to download the source code required for compilation, 
 including php-src and the source code of various dependent libraries.
 
 ```bash
-# Download all dependencies
+# Download all dependencies, defaults to php 8.4
 bin/spc download --all
 
-# Download all dependent packages, and specify the main version of PHP to download, optional: 7.3, 7.4, 8.0, 8.1, 8.2, 8.3
+# Download all dependent packages, and specify the main version of PHP to download, optional: 8.1, 8.2, 8.3, 8.4
 # Also supports specific version of php release: 8.3.10, 8.2.22, etc.
-bin/spc download --all --with-php=8.2
+bin/spc download --all --with-php=8.3
 
 # Show download progress bar while downloading (curl)
 bin/spc download --all --debug
@@ -272,12 +272,12 @@ If you want to build multiple versions of PHP and don't want to build other depe
 you can use `switch-php-version` to quickly switch to another version and compile after compiling one version:
 
 ```shell
-# switch to 8.3
-bin/spc switch-php-version 8.3
+# switch to 8.4
+bin/spc switch-php-version 8.4
 # build
 bin/spc build bcmath,curl,openssl,ftp,posix,pcntl --build-cli
-# switch to 8.0
-bin/spc switch-php-version 8.0
+# switch to 8.1
+bin/spc switch-php-version 8.1
 # build
 bin/spc build bcmath,curl,openssl,ftp,posix,pcntl --build-cli
 ```
@@ -304,6 +304,8 @@ You can try to use the following commands:
 - `--enable-zts`: Make compiled PHP thread-safe version (default is NTS version)
 - `--no-strip`: Do not run `strip` after compiling the PHP library to trim the binary file to reduce its size (the macOS binary file without trim can use dynamically linked third-party extensions)
 - `--with-libs=XXX,YYY`: Compile the specified dependent library before compiling PHP, and activate some extended optional functions (such as libavif of the gd library, etc.)
+- `--with-config-file-path=XXX`: Set the path in which to look for `php.ini` (Check [here](../faq/index.html#what-is-the-path-of-php-ini) for default paths)
+- `--with-config-file-scan-dir=XXX`: Set the directory to scan for `.ini` files after reading `php.ini` (Check [here](../faq/index.html#what-is-the-path-of-php-ini) for default paths)
 - `-I xxx=yyy`: Hard compile INI options into PHP before compiling (support multiple options, alias is `--with-hardcoded-ini`)
 - `--with-micro-fake-cli`: When compiling micro, let micro's `PHP_SAPI` pretend to be `cli` (for compatibility with some programs that check `PHP_SAPI`)
 - `--disable-opcache-jit`: Disable opcache jit (enabled by default)
@@ -394,6 +396,31 @@ manually unpack and copy the package to a specified location, and we can use com
 # Unzip the downloaded compressed package of php-src and libxml2, and store the decompressed source code in the source directory
 bin/spc extract php-src,libxml2
 ```
+
+## Command - dump-extensions
+
+Use the command `bin/spc dump-extensions` to export required extensions of the current project.
+
+```bash
+# Print the extension list of the project, pass in the root directory of the project containing composer.json
+bin/spc dump-extensions /path/to/your/project/
+
+# Print the extension list of the project, excluding development dependencies
+bin/spc dump-extensions /path-to/tour/project/ --no-dev
+
+# Output in the extension list format acceptable to the spc command (comma separated)
+bin/spc dump-extensions /path-to/tour/project/ --format=text
+
+# Output as a JSON list
+bin/spc dump-extensions /path-to/tour/project/ --format=json
+
+# When the project does not have any extensions, output the specified extension combination instead of returning failure
+bin/spc dump-extensions /path-to/your/project/ --no-ext-output=mbstring,posix,pcntl,phar
+
+# Do not exclude extensions not supported by spc when outputting
+bin/spc dump-extensions /path/to/your/project/ --no-spc-filter
+```
+It should be noted that the project directory must contain the `vendor/installed.json` and `composer.lock` files, otherwise they cannot be found normally.
 
 ## Dev Command - dev
 
@@ -551,3 +578,76 @@ If you need to build multiple times locally, the following method can save you t
 - If you want to rebuild once, but do not re-download the source code, you can first `rm -rf buildroot source` to delete the compilation directory and source code directory, and then rebuild.
 - If you want to update a version of a dependency, you can use `bin/spc del-download <source-name>` to delete the specified source code, and then use `download <source-name>` to download it again.
 - If you want to update all dependent versions, you can use `bin/spc download --clean` to delete all downloaded sources, and then download them again.
+
+## embed usage
+
+If you want to embed static-php into other C language programs, you can use `--build-embed` to build an embed version of PHP.
+
+```bash
+bin/spc build {your extensions} --build-embed --debug
+```
+
+Under normal circumstances, PHP embed will generate `php-config` after compilation. 
+For static-php, we provide `spc-config` to obtain the parameters during compilation.
+In addition, when using embed SAPI (libphp.a), you need to use the same compiler as libphp, otherwise there will be a link error.
+
+Here is the basic usage of spc-config:
+
+```bash
+# output all flags and options
+bin/spc spc-config curl,zlib,phar,openssl
+
+# output libs
+bin/spc spc-config curl,zlib,phar,openssl --libs
+
+# output includes
+bin/spc spc-config curl,zlib,phar,openssl --includes
+```
+
+By default, static-php uses the following compilers on different systems:
+
+- macOS: `clang`
+- Linux (Alpine Linux): `gcc`
+- Linux (glibc based distros, x86_64): `/usr/local/musl/bin/x86_64-linux-musl-gcc`
+- Linux (glibc based distros, aarch64): `/usr/local/musl/bin/aarch64-linux-musl-gcc`
+- FreeBSD: `clang`
+
+Here is an example of using embed SAPI:
+
+```c
+// embed.c
+#include <sapi/embed/php_embed.h>
+
+int main(int argc,char **argv){
+
+    PHP_EMBED_START_BLOCK(argc,argv)
+
+    zend_file_handle file_handle;
+
+    zend_stream_init_filename(&file_handle,"embed.php");
+
+    if(php_execute_script(&file_handle) == FAILURE){
+        php_printf("Failed to execute PHP script.\n");
+    }
+
+    PHP_EMBED_END_BLOCK()
+    return 0;
+}
+```
+
+
+```php
+<?php 
+// embed.php
+echo "Hello world!\n";
+```
+
+```bash
+# compile in debian/ubuntu x86_64
+/usr/local/musl/bin/x86_64-linux-musl-gcc embed.c $(bin/spc spc-config bcmath,zlib) -static -o embed
+# compile in macOS/FreeBSD
+clang embed.c $(bin/spc spc-config bcmath,zlib) -o embed
+
+./embed
+# out: Hello world!
+```

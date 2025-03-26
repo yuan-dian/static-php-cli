@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Copyright (c) 2022 Yun Dou <dixyes@gmail.com>
  *
@@ -46,6 +47,7 @@ class openssl extends MacOSLibraryBase
             $extra = 'zlib';
             $ex_lib = trim($zlib->getStaticLibFiles() . ' ' . $ex_lib);
         }
+        $arch = getenv('SPC_ARCH');
 
         shell()->cd($this->source_dir)
             ->setEnv(['CFLAGS' => $this->getLibExtraCFlags(), 'LDFLAGS' => $this->getLibExtraLdFlags(), 'LIBS' => $this->getLibExtraLibs()])
@@ -53,8 +55,8 @@ class openssl extends MacOSLibraryBase
                 "./Configure no-shared {$extra} " .
                 '--prefix=/ ' . // use prefix=/
                 "--libdir={$lib} " .
-                '--openssldir=/System/Library/OpenSSL ' .
-                "darwin64-{$this->builder->getOption('arch')}-cc"
+                '--openssldir=/etc/ssl ' .
+                "darwin64-{$arch}-cc"
             )
             ->exec('make clean')
             ->execWithEnv("make -j{$this->builder->concurrency} CNF_EX_LIBS=\"{$ex_lib}\"")

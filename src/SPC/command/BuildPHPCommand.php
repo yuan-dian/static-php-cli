@@ -7,6 +7,7 @@ namespace SPC\command;
 use SPC\builder\BuilderProvider;
 use SPC\exception\ExceptionHandler;
 use SPC\exception\WrongUsageException;
+use SPC\store\Config;
 use SPC\store\FileSystem;
 use SPC\store\SourcePatcher;
 use SPC\util\DependencyUtil;
@@ -18,20 +19,23 @@ use Symfony\Component\Console\Input\InputOption;
 use ZM\Logger\ConsoleColor;
 
 #[AsCommand('build', 'build PHP', ['build:php'])]
-class BuildCliCommand extends BuildCommand
+class BuildPHPCommand extends BuildCommand
 {
     public function configure(): void
     {
+        $isWindows = PHP_OS_FAMILY === 'Windows';
+
         $this->addArgument('extensions', InputArgument::REQUIRED, 'The extensions will be compiled, comma separated');
         $this->addOption('with-libs', null, InputOption::VALUE_REQUIRED, 'add additional libraries, comma separated', '');
         $this->addOption('build-micro', null, null, 'Build micro SAPI');
         $this->addOption('build-cli', null, null, 'Build cli SAPI');
-        $this->addOption('build-fpm', null, null, 'Build fpm SAPI');
-        $this->addOption('build-embed', null, null, 'Build embed SAPI');
+        $this->addOption('build-fpm', null, null, 'Build fpm SAPI (not available on Windows)');
+        $this->addOption('build-embed', null, null, 'Build embed SAPI (not available on Windows)');
         $this->addOption('build-all', null, null, 'Build all SAPI');
         $this->addOption('no-strip', null, null, 'build without strip, in order to debug and load external extensions');
-        $this->addOption('enable-zts', null, null, 'enable ZTS support');
         $this->addOption('disable-opcache-jit', null, null, 'disable opcache jit');
+        $this->addOption('with-config-file-path', null, InputOption::VALUE_REQUIRED, 'Set the path in which to look for php.ini', $isWindows ? null : '/usr/local/etc/php');
+        $this->addOption('with-config-file-scan-dir', null, InputOption::VALUE_REQUIRED, 'Set the directory to scan for .ini files after reading php.ini', $isWindows ? null : '/usr/local/etc/php/conf.d');
         $this->addOption('with-hardcoded-ini', 'I', InputOption::VALUE_IS_ARRAY | InputOption::VALUE_REQUIRED, 'Patch PHP source code, inject hardcoded INI');
         $this->addOption('with-micro-fake-cli', null, null, 'Let phpmicro\'s PHP_SAPI use "cli" instead of "micro"');
         $this->addOption('with-suggested-libs', 'L', null, 'Build with suggested libs for selected exts and libs');
@@ -104,16 +108,20 @@ class BuildCliCommand extends BuildCommand
             $include_suggest_ext = $this->getOption('with-suggested-exts');
             $include_suggest_lib = $this->getOption('with-suggested-libs');
             [$extensions, $libraries, $not_included] = DependencyUtil::getExtsAndLibs($extensions, $libraries, $include_suggest_ext, $include_suggest_lib);
+            $display_libs = array_filter($libraries, fn ($lib) => in_array(Config::getLib($lib, 'type', 'lib'), ['lib', 'package']));
 
             // print info
             $indent_texts = [
                 'Build OS' => PHP_OS_FAMILY . ' (' . php_uname('m') . ')',
                 'Build SAPI' => $builder->getBuildTypeName($rule),
                 'Extensions (' . count($extensions) . ')' => implode(',', $extensions),
-                'Libraries (' . count($libraries) . ')' => implode(',', $libraries),
+                'Libraries (' . count($libraries) . ')' => implode(',', $display_libs),
                 'Strip Binaries' => $builder->getOption('no-strip') ? 'no' : 'yes',
                 'Enable ZTS' => $builder->getOption('enable-zts') ? 'yes' : 'no',
             ];
+            if (!empty($this->input->getOption('with-config-file-path'))) {
+                $indent_texts['Config File Path'] = $this->input->getOption('with-config-file-path');
+            }
             if (!empty($this->input->getOption('with-hardcoded-ini'))) {
                 $indent_texts['Hardcoded INI'] = $this->input->getOption('with-hardcoded-ini');
             }
@@ -147,13 +155,16 @@ class BuildCliCommand extends BuildCommand
             $builder->proveExts($extensions);
             // validate libs and exts
             $builder->validateLibsAndExts();
+
+            // clean builds and sources
+            if ($this->input->getOption('with-clean')) {
+                logger()->info('Cleaning source and previous build dir...');
+                FileSystem::removeDir(SOURCE_PATH);
+                FileSystem::removeDir(BUILD_ROOT_PATH);
+            }
+
             // build or install libraries
             $builder->setupLibs();
-
-            if ($this->input->getOption('with-clean')) {
-                logger()->info('Cleaning source dir...');
-                FileSystem::removeDir(SOURCE_PATH);
-            }
 
             // Process -I option
             $custom_ini = [];
@@ -174,7 +185,9 @@ class BuildCliCommand extends BuildCommand
 
             // compile stopwatch :P
             $time = round(microtime(true) - START_TIME, 3);
-            logger()->info('Build complete, used ' . $time . ' s !');
+            logger()->info('');
+            logger()->info('   Build complete, used ' . $time . ' s !');
+            logger()->info('');
 
             // ---------- When using bin/spc-alpine-docker, the build root path is different from the host system ----------
             $build_root_path = BUILD_ROOT_PATH;
@@ -182,7 +195,7 @@ class BuildCliCommand extends BuildCommand
             $fixed = '';
             if (!empty(getenv('SPC_FIX_DEPLOY_ROOT'))) {
                 str_replace($cwd, '', $build_root_path);
-                $build_root_path = getenv('SPC_FIX_DEPLOY_ROOT') . $build_root_path;
+                $build_root_path = getenv('SPC_FIX_DEPLOY_ROOT') . '/' . basename($build_root_path);
                 $fixed = ' (host system)';
             }
             if (($rule & BUILD_TARGET_CLI) === BUILD_TARGET_CLI) {

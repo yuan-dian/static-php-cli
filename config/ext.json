@@ -17,6 +17,10 @@
         "type": "external",
         "source": "apcu"
     },
+    "ast": {
+        "type": "external",
+        "source": "ast"
+    },
     "bcmath": {
         "type": "builtin"
     },
@@ -52,6 +56,13 @@
         "lib-suggests": [
             "qdbm"
         ]
+    },
+    "dio": {
+        "support": {
+            "BSD": "wip"
+        },
+        "type": "external",
+        "source": "dio"
     },
     "dom": {
         "support": {
@@ -105,7 +116,7 @@
     },
     "ffi": {
         "support": {
-            "Linux": "no",
+            "Linux": "partial",
             "BSD": "wip"
         },
         "notes": true,
@@ -199,6 +210,19 @@
             "gmssl"
         ]
     },
+    "grpc": {
+        "support": {
+            "Windows": "wip",
+            "BSD": "wip"
+        },
+        "type": "external",
+        "source": "grpc",
+        "arg-type-unix": "custom",
+        "cpp-extension": true,
+        "lib-depends": [
+            "grpc"
+        ]
+    },
     "iconv": {
         "support": {
             "BSD": "wip"
@@ -242,7 +266,8 @@
             "BSD": "wip"
         },
         "notes": true,
-        "type": "builtin",
+        "type": "external",
+        "source": "ext-imap",
         "arg-type": "custom",
         "lib-depends": [
             "imap"
@@ -330,10 +355,8 @@
         "type": "external",
         "source": "ext-memcache",
         "arg-type": "custom",
-        "lib-depends": [
-            "zlib"
-        ],
         "ext-depends": [
+            "zlib",
             "session"
         ]
     },
@@ -403,6 +426,17 @@
         },
         "notes": true
     },
+    "odbc": {
+        "support": {
+            "BSD": "wip",
+            "Windows": "wip"
+        },
+        "type": "builtin",
+        "arg-type-unix": "custom",
+        "lib-depends-unix": [
+            "unixodbc"
+        ]
+    },
     "opcache": {
         "type": "builtin",
         "arg-type-unix": "custom"
@@ -419,6 +453,13 @@
         "ext-depends": [
             "zlib"
         ]
+    },
+    "opentelemetry": {
+        "support": {
+            "BSD": "wip"
+        },
+        "type": "external",
+        "source": "opentelemetry"
     },
     "parallel": {
         "support": {
@@ -462,19 +503,36 @@
             "mysqlnd"
         ]
     },
+    "pdo_odbc": {
+        "support": {
+            "BSD": "wip"
+        },
+        "type": "builtin",
+        "arg-type": "custom",
+        "lib-depends-unix": [
+            "unixodbc"
+        ],
+        "ext-depends": [
+            "pdo",
+            "odbc"
+        ]
+    },
     "pdo_pgsql": {
         "support": {
-            "Windows": "wip",
             "BSD": "wip"
         },
         "type": "builtin",
         "arg-type": "with-prefix",
+        "arg-type-windows": "custom",
         "ext-depends": [
             "pdo",
             "pgsql"
         ],
-        "lib-depends": [
+        "lib-depends-unix": [
             "postgresql"
+        ],
+        "lib-depends-windows": [
+            "postgresql-win"
         ]
     },
     "pdo_sqlite": {
@@ -505,14 +563,16 @@
     },
     "pgsql": {
         "support": {
-            "Windows": "wip",
             "BSD": "wip"
         },
         "notes": true,
         "type": "builtin",
-        "arg-type": "with-prefix",
-        "lib-depends": [
+        "arg-type": "custom",
+        "lib-depends-unix": [
             "postgresql"
+        ],
+        "lib-depends-windows": [
+            "postgresql-win"
         ]
     },
     "phar": {
@@ -545,6 +605,19 @@
         "type": "external",
         "source": "rar",
         "cpp-extension": true
+    },
+    "rdkafka": {
+        "support": {
+            "BSD": "wip",
+            "Windows": "wip"
+        },
+        "type": "external",
+        "source": "ext-rdkafka",
+        "arg-type": "custom",
+        "cpp-extension": true,
+        "lib-depends": [
+            "librdkafka"
+        ]
     },
     "readline": {
         "support": {
@@ -631,7 +704,6 @@
     },
     "sodium": {
         "support": {
-            "Windows": "wip",
             "BSD": "wip"
         },
         "type": "builtin",

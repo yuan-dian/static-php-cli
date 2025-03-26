@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Psr\Log\LoggerInterface;
 use SPC\builder\BuilderBase;
 use SPC\builder\BuilderProvider;
+use SPC\exception\InterruptException;
 use SPC\exception\RuntimeException;
 use SPC\exception\WrongUsageException;
 use SPC\util\UnixShell;
@@ -20,6 +21,14 @@ function is_assoc_array(mixed $array): bool
 }
 
 /**
+ * Judge if an array is a list
+ */
+function is_list_array(mixed $array): bool
+{
+    return is_array($array) && (empty($array) || array_keys($array) === range(0, count($array) - 1));
+}
+
+/**
  * Return a logger instance
  */
 function logger(): LoggerInterface
@@ -29,6 +38,11 @@ function logger(): LoggerInterface
         return new ConsoleLogger();
     }
     return $ob_logger;
+}
+
+function is_unix(): bool
+{
+    return in_array(PHP_OS_FAMILY, ['Linux', 'Darwin', 'BSD']);
 }
 
 /**
@@ -118,6 +132,11 @@ function builder(): BuilderBase
 function patch_point(): string
 {
     return BuilderProvider::getBuilder()->getPatchPoint();
+}
+
+function patch_point_interrupt(int $retcode, string $msg = ''): InterruptException
+{
+    return new InterruptException(message: $msg, code: $retcode);
 }
 
 // ------- function f_* part -------

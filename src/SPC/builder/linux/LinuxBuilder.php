@@ -29,14 +29,19 @@ class LinuxBuilder extends UnixBuilderBase
         // check musl-cross make installed if we use musl-cross-make
         $arch = arch2gnu(php_uname('m'));
 
-        // set library path, some libraries need it. (We cannot use `putenv` here, because cmake will be confused)
-        $this->setOptionIfNotExist('library_path', "LIBRARY_PATH=/usr/local/musl/{$arch}-linux-musl/lib");
-        $this->setOptionIfNotExist('ld_library_path', "LD_LIBRARY_PATH=/usr/local/musl/{$arch}-linux-musl/lib");
-
         GlobalEnvManager::init($this);
 
-        if (str_ends_with(getenv('CC'), 'linux-musl-gcc') && !file_exists("/usr/local/musl/bin/{$arch}-linux-musl-gcc")) {
-            throw new WrongUsageException('musl-cross-make not installed, please install it first. (You can use `doctor` command to install it)');
+        if (getenv('SPC_LIBC') === 'musl' && !SystemUtil::isMuslDist()) {
+            $this->setOptionIfNotExist('library_path', "LIBRARY_PATH=\"/usr/local/musl/{$arch}-linux-musl/lib\"");
+            $this->setOptionIfNotExist('ld_library_path', "LD_LIBRARY_PATH=\"/usr/local/musl/{$arch}-linux-musl/lib\"");
+            GlobalEnvManager::putenv("PATH=/usr/local/musl/bin:/usr/local/musl/{$arch}-linux-musl/bin:" . getenv('PATH'));
+            $configure = getenv('SPC_CMD_PREFIX_PHP_CONFIGURE');
+            $configure = "LD_LIBRARY_PATH=\"/usr/local/musl/{$arch}-linux-musl/lib\" " . $configure;
+            GlobalEnvManager::putenv("SPC_CMD_PREFIX_PHP_CONFIGURE={$configure}");
+
+            if (!file_exists("/usr/local/musl/{$arch}-linux-musl/lib/libc.a")) {
+                throw new WrongUsageException('You are building with musl-libc target in glibc distro, but musl-toolchain is not installed, please install musl-toolchain first. (You can use `doctor` command to install it)');
+            }
         }
 
         // concurrency
@@ -113,6 +118,7 @@ class LinuxBuilder extends UnixBuilderBase
         $extra_libs .= (empty($extra_libs) ? '' : ' ') . ($this->hasCpp() ? '-lstdc++ ' : '');
         f_putenv('SPC_EXTRA_LIBS=' . $extra_libs);
         $cflags = $this->arch_c_flags;
+        f_putenv('CFLAGS=' . $cflags);
 
         $this->emitPatchPoint('before-php-buildconf');
         SourcePatcher::patchBeforeBuildconf($this);
@@ -134,17 +140,23 @@ class LinuxBuilder extends UnixBuilderBase
         }
         $disable_jit = $this->getOption('disable-opcache-jit', false) ? '--disable-opcache-jit ' : '';
 
+        $config_file_path = $this->getOption('with-config-file-path', false) ?
+            ('--with-config-file-path=' . $this->getOption('with-config-file-path') . ' ') : '';
+        $config_file_scan_dir = $this->getOption('with-config-file-scan-dir', false) ?
+            ('--with-config-file-scan-dir=' . $this->getOption('with-config-file-scan-dir') . ' ') : '';
+
         $enable_cli = ($build_target & BUILD_TARGET_CLI) === BUILD_TARGET_CLI;
         $enable_fpm = ($build_target & BUILD_TARGET_FPM) === BUILD_TARGET_FPM;
         $enable_micro = ($build_target & BUILD_TARGET_MICRO) === BUILD_TARGET_MICRO;
         $enable_embed = ($build_target & BUILD_TARGET_EMBED) === BUILD_TARGET_EMBED;
 
+        $mimallocLibs = $this->getLib('mimalloc') !== null ? BUILD_LIB_PATH . '/mimalloc.o ' : '';
         // prepare build php envs
         $envs_build_php = SystemUtil::makeEnvVarString([
             'CFLAGS' => getenv('SPC_CMD_VAR_PHP_CONFIGURE_CFLAGS'),
             'CPPFLAGS' => getenv('SPC_CMD_VAR_PHP_CONFIGURE_CPPFLAGS'),
             'LDFLAGS' => getenv('SPC_CMD_VAR_PHP_CONFIGURE_LDFLAGS'),
-            'LIBS' => getenv('SPC_CMD_VAR_PHP_CONFIGURE_LIBS'),
+            'LIBS' => $mimallocLibs . getenv('SPC_CMD_VAR_PHP_CONFIGURE_LIBS'),
         ]);
 
         // process micro upx patch if micro sapi enabled
@@ -156,13 +168,16 @@ class LinuxBuilder extends UnixBuilderBase
             // micro latest needs do strip and upx pack later (strip, upx, cut binary manually supported)
         }
 
+        $embed_type = getenv('SPC_CMD_VAR_PHP_EMBED_TYPE') ?: 'static';
         shell()->cd(SOURCE_PATH . '/php-src')
             ->exec(
                 getenv('SPC_CMD_PREFIX_PHP_CONFIGURE') . ' ' .
                 ($enable_cli ? '--enable-cli ' : '--disable-cli ') .
-                ($enable_fpm ? '--enable-fpm ' : '--disable-fpm ') .
-                ($enable_embed ? '--enable-embed=static ' : '--disable-embed ') .
+                ($enable_fpm ? '--enable-fpm ' . ($this->getLib('libacl') !== null ? '--with-fpm-acl ' : '') : '--disable-fpm ') .
+                ($enable_embed ? "--enable-embed={$embed_type} " : '--disable-embed ') .
                 ($enable_micro ? '--enable-micro=all-static ' : '--disable-micro ') .
+                $config_file_path .
+                $config_file_scan_dir .
                 $disable_jit .
                 $json_74 .
                 $zts .
@@ -196,10 +211,8 @@ class LinuxBuilder extends UnixBuilderBase
             $this->buildEmbed();
         }
 
-        if (php_uname('m') === $this->getOption('arch')) {
-            $this->emitPatchPoint('before-sanity-check');
-            $this->sanityCheck($build_target);
-        }
+        $this->emitPatchPoint('before-sanity-check');
+        $this->sanityCheck($build_target);
     }
 
     /**
@@ -298,6 +311,15 @@ class LinuxBuilder extends UnixBuilderBase
         shell()->cd(SOURCE_PATH . '/php-src')
             ->exec('sed -i "s|//lib|/lib|g" Makefile')
             ->exec(getenv('SPC_CMD_PREFIX_PHP_MAKE') . ' INSTALL_ROOT=' . BUILD_ROOT_PATH . " {$vars} install");
+        FileSystem::replaceFileStr(BUILD_BIN_PATH . '/phpize', "prefix=''", "prefix='" . BUILD_ROOT_PATH . "'");
+        FileSystem::replaceFileStr(BUILD_BIN_PATH . '/phpize', 's##', 's#/usr/local#');
+        $php_config_str = FileSystem::readFile(BUILD_BIN_PATH . '/php-config');
+        str_replace('prefix=""', 'prefix="' . BUILD_ROOT_PATH . '"', $php_config_str);
+        // move mimalloc to the beginning of libs
+        $php_config_str = preg_replace('/(libs=")(.*?)\s*(' . preg_quote(BUILD_LIB_PATH, '/') . '\/mimalloc\.o)\s*(.*?)"/', '$1$3 $2 $4"', $php_config_str);
+        // move lstdc++ to the end of libs
+        $php_config_str = preg_replace('/(libs=")(.*?)\s*(-lstdc\+\+)\s*(.*?)"/', '$1$2 $4 $3"', $php_config_str);
+        FileSystem::writeFile(BUILD_BIN_PATH . '/php-config', $php_config_str);
     }
 
     private function getMakeExtraVars(): array

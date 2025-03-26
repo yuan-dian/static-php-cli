@@ -113,7 +113,7 @@ abstract class LibraryBase
         /*
         Rules:
             If it is a Windows system, try the following dependencies in order: lib-depends-windows, lib-depends-win, lib-depends.
-            If it is a macOS system, try the following dependencies in order: lib-depends-darwin, lib-depends-unix, lib-depends.
+            If it is a macOS system, try the following dependencies in order: lib-depends-macos, lib-depends-unix, lib-depends.
             If it is a Linux system, try the following dependencies in order: lib-depends-linux, lib-depends-unix, lib-depends.
         */
         foreach (Config::getLib(static::NAME, 'lib-depends', []) as $dep_name) {
@@ -144,6 +144,17 @@ abstract class LibraryBase
     public function getHeaders(): array
     {
         return Config::getLib(static::NAME, 'headers', []);
+    }
+
+    /**
+     * Get binary files.
+     *
+     * @throws FileSystemException
+     * @throws WrongUsageException
+     */
+    public function getBinaryFiles(): array
+    {
+        return Config::getLib(static::NAME, 'bin', []);
     }
 
     /**
@@ -203,7 +214,8 @@ abstract class LibraryBase
         }
         // force means just build
         if ($force_build) {
-            logger()->info('Building required library [' . static::NAME . ']');
+            $type = Config::getLib(static::NAME, 'type', 'lib');
+            logger()->info('Building required ' . $type . ' [' . static::NAME . ']');
 
             // extract first if not exists
             if (!is_dir($this->source_dir)) {
@@ -236,21 +248,17 @@ abstract class LibraryBase
                 return LIB_STATUS_OK;
             }
         }
-        // pkg-config is treated specially. If it is pkg-config, check if the pkg-config binary exists
-        if (static::NAME === 'pkg-config' && !file_exists(BUILD_ROOT_PATH . '/bin/pkg-config')) {
-            $this->tryBuild(true);
-            return LIB_STATUS_OK;
+        // current library is package and binary file is not exists
+        if (Config::getLib(static::NAME, 'type', 'lib') === 'package') {
+            foreach ($this->getBinaryFiles() as $name) {
+                if (!file_exists(BUILD_BIN_PATH . "/{$name}")) {
+                    $this->tryBuild(true);
+                    return LIB_STATUS_OK;
+                }
+            }
         }
         // if all the files exist at this point, skip the compilation process
         return LIB_STATUS_ALREADY;
-    }
-
-    /**
-     * Patch before build, overwrite this and return true to patch libs.
-     */
-    public function patchBeforeBuild(): bool
-    {
-        return false;
     }
 
     public function validate(): void
@@ -276,6 +284,46 @@ abstract class LibraryBase
     public function beforePack(): void
     {
         // do something before pack, default do nothing. overwrite this method to do something (e.g. modify pkg-config file)
+    }
+
+    /**
+     * Patch code before build
+     * If you need to patch some code, overwrite this
+     * return true if you patched something, false if not
+     */
+    public function patchBeforeBuild(): bool
+    {
+        return false;
+    }
+
+    /**
+     * Patch code before ./buildconf
+     * If you need to patch some code, overwrite this
+     * return true if you patched something, false if not
+     */
+    public function patchBeforeBuildconf(): bool
+    {
+        return false;
+    }
+
+    /**
+     * Patch code before ./configure
+     * If you need to patch some code, overwrite this
+     * return true if you patched something, false if not
+     */
+    public function patchBeforeConfigure(): bool
+    {
+        return false;
+    }
+
+    /**
+     * Patch code before make
+     * If you need to patch some code, overwrite this
+     * return true if you patched something, false if not
+     */
+    public function patchBeforeMake(): bool
+    {
+        return false;
     }
 
     /**

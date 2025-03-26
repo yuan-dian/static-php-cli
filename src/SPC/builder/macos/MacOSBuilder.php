@@ -37,7 +37,7 @@ class MacOSBuilder extends UnixBuilderBase
         $this->arch_c_flags = getenv('SPC_DEFAULT_C_FLAGS');
         $this->arch_cxx_flags = getenv('SPC_DEFAULT_CXX_FLAGS');
         // cmake toolchain
-        $this->cmake_toolchain_file = SystemUtil::makeCmakeToolchainFile('Darwin', $this->getOption('arch', php_uname('m')), $this->arch_c_flags);
+        $this->cmake_toolchain_file = SystemUtil::makeCmakeToolchainFile('Darwin', getenv('SPC_ARCH'), $this->arch_c_flags);
 
         // create pkgconfig and include dir (some libs cannot create them automatically)
         f_mkdir(BUILD_LIB_PATH . '/pkgconfig', recursive: true);
@@ -137,16 +137,23 @@ class MacOSBuilder extends UnixBuilderBase
         $json_74 = $this->getPHPVersionID() < 80000 ? '--enable-json ' : '';
         $zts = $this->getOption('enable-zts', false) ? '--enable-zts --disable-zend-signals ' : '';
 
+        $config_file_path = $this->getOption('with-config-file-path', false) ?
+            ('--with-config-file-path=' . $this->getOption('with-config-file-path') . ' ') : '';
+        $config_file_scan_dir = $this->getOption('with-config-file-scan-dir', false) ?
+            ('--with-config-file-scan-dir=' . $this->getOption('with-config-file-scan-dir') . ' ') : '';
+
         $enableCli = ($build_target & BUILD_TARGET_CLI) === BUILD_TARGET_CLI;
         $enableFpm = ($build_target & BUILD_TARGET_FPM) === BUILD_TARGET_FPM;
         $enableMicro = ($build_target & BUILD_TARGET_MICRO) === BUILD_TARGET_MICRO;
         $enableEmbed = ($build_target & BUILD_TARGET_EMBED) === BUILD_TARGET_EMBED;
 
         // prepare build php envs
+        $mimallocLibs = $this->getLib('mimalloc') !== null ? BUILD_LIB_PATH . '/mimalloc.o ' : '';
         $envs_build_php = SystemUtil::makeEnvVarString([
             'CFLAGS' => getenv('SPC_CMD_VAR_PHP_CONFIGURE_CFLAGS'),
             'CPPFLAGS' => getenv('SPC_CMD_VAR_PHP_CONFIGURE_CPPFLAGS'),
             'LDFLAGS' => getenv('SPC_CMD_VAR_PHP_CONFIGURE_LDFLAGS'),
+            'LIBS' => $mimallocLibs . getenv('SPC_CMD_VAR_PHP_CONFIGURE_LIBS'),
         ]);
 
         if ($this->getLib('postgresql')) {
@@ -157,13 +164,16 @@ class MacOSBuilder extends UnixBuilderBase
                 );
         }
 
+        $embed_type = getenv('SPC_CMD_VAR_PHP_EMBED_TYPE') ?: 'static';
         shell()->cd(SOURCE_PATH . '/php-src')
             ->exec(
                 getenv('SPC_CMD_PREFIX_PHP_CONFIGURE') . ' ' .
                 ($enableCli ? '--enable-cli ' : '--disable-cli ') .
                 ($enableFpm ? '--enable-fpm ' : '--disable-fpm ') .
-                ($enableEmbed ? '--enable-embed=static ' : '--disable-embed ') .
+                ($enableEmbed ? "--enable-embed={$embed_type} " : '--disable-embed ') .
                 ($enableMicro ? '--enable-micro ' : '--disable-micro ') .
+                $config_file_path .
+                $config_file_scan_dir .
                 $json_74 .
                 $zts .
                 $this->makeExtensionArgs() . ' ' .
@@ -195,10 +205,8 @@ class MacOSBuilder extends UnixBuilderBase
             $this->buildEmbed();
         }
 
-        if (php_uname('m') === $this->getOption('arch')) {
-            $this->emitPatchPoint('before-sanity-check');
-            $this->sanityCheck($build_target);
-        }
+        $this->emitPatchPoint('before-sanity-check');
+        $this->sanityCheck($build_target);
     }
 
     /**
@@ -292,6 +300,13 @@ class MacOSBuilder extends UnixBuilderBase
             ->exec('rm ' . BUILD_ROOT_PATH . '/lib/libphp.a')
             ->exec('ar rcs ' . BUILD_ROOT_PATH . '/lib/libphp.a *.o')
             ->exec('rm -Rf ' . BUILD_ROOT_PATH . '/lib/php-o');
+        FileSystem::replaceFileStr(BUILD_BIN_PATH . '/phpize', "prefix=''", "prefix='" . BUILD_ROOT_PATH . "'");
+        FileSystem::replaceFileStr(BUILD_BIN_PATH . '/phpize', 's##', 's#/usr/local#');
+        $php_config_str = FileSystem::readFile(BUILD_BIN_PATH . '/php-config');
+        str_replace('prefix=""', 'prefix="' . BUILD_ROOT_PATH . '"', $php_config_str);
+        // move mimalloc to the beginning of libs
+        $php_config_str = preg_replace('/(libs=")(.*?)\s*(' . preg_quote(BUILD_LIB_PATH, '/') . '\/mimalloc\.o)\s*(.*?)"/', '$1$3 $2 $4"', $php_config_str);
+        FileSystem::writeFile(BUILD_BIN_PATH . '/php-config', $php_config_str);
     }
 
     private function getMakeExtraVars(): array
