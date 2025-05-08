@@ -22,10 +22,29 @@ class Config
 
     public static ?array $pre_built = null;
 
+    /**
+     * @throws WrongUsageException
+     * @throws FileSystemException
+     */
     public static function getPreBuilt(string $name): mixed
     {
         if (self::$pre_built === null) {
             self::$pre_built = FileSystem::loadConfigArray('pre-built');
+        }
+        $supported_sys_based = ['match-pattern', 'prefer-stable', 'repo'];
+        if (in_array($name, $supported_sys_based)) {
+            $m_key = match (PHP_OS_FAMILY) {
+                'Windows' => ['-windows', '-win', ''],
+                'Darwin' => ['-macos', '-unix', ''],
+                'Linux' => ['-linux', '-unix', ''],
+                'BSD' => ['-freebsd', '-bsd', '-unix', ''],
+                default => throw new WrongUsageException('OS ' . PHP_OS_FAMILY . ' is not supported'),
+            };
+            foreach ($m_key as $v) {
+                if (isset(self::$pre_built["{$name}{$v}"])) {
+                    return self::$pre_built["{$name}{$v}"];
+                }
+            }
         }
         return self::$pre_built[$name] ?? null;
     }
@@ -104,6 +123,21 @@ class Config
             self::$lib = FileSystem::loadConfigArray('lib');
         }
         return self::$lib;
+    }
+
+    /**
+     * @throws WrongUsageException
+     * @throws FileSystemException
+     */
+    public static function getExtTarget(string $name): ?array
+    {
+        if (self::$ext === null) {
+            self::$ext = FileSystem::loadConfigArray('ext');
+        }
+        if (!isset(self::$ext[$name])) {
+            throw new WrongUsageException('ext [' . $name . '] is not supported yet');
+        }
+        return self::$ext[$name]['target'] ?? ['static', 'shared'];
     }
 
     /**

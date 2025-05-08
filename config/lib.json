@@ -210,12 +210,12 @@
             "libwebp",
             "freetype",
             "libtiff",
-            "libheif"
+            "libheif",
+            "bzip2"
         ],
         "lib-suggests": [
             "zstd",
             "xz",
-            "bzip2",
             "libzip",
             "libxml2"
         ]
@@ -281,8 +281,7 @@
         "headers-unix": [
             "ares.h",
             "ares_dns.h",
-            "ares_nameser.h",
-            "ares_rules.h"
+            "ares_nameser.h"
         ]
     },
     "libde265": {

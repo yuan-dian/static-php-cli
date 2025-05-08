@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace SPC\command;
 
+use SPC\builder\linux\SystemUtil;
 use SPC\builder\traits\UnixSystemUtilTrait;
 use SPC\exception\DownloaderException;
 use SPC\exception\FileSystemException;
@@ -42,6 +43,7 @@ class DownloadCommand extends BaseCommand
         $this->addOption('ignore-cache-sources', null, InputOption::VALUE_OPTIONAL, 'Ignore some source caches, comma separated, e.g "php-src,curl,openssl"', false);
         $this->addOption('retry', 'R', InputOption::VALUE_REQUIRED, 'Set retry time when downloading failed (default: 0)', '0');
         $this->addOption('prefer-pre-built', 'P', null, 'Download pre-built libraries when available');
+        $this->addOption('no-alt', null, null, 'Do not download alternative sources');
     }
 
     /**
@@ -94,22 +96,7 @@ class DownloadCommand extends BaseCommand
     {
         try {
             if ($this->getOption('clean')) {
-                logger()->warning('You are doing some operations that not recoverable: removing directories below');
-                logger()->warning(SOURCE_PATH);
-                logger()->warning(DOWNLOAD_PATH);
-                logger()->warning(BUILD_ROOT_PATH);
-                logger()->alert('I will remove these dir after 5 seconds !');
-                sleep(5);
-                if (PHP_OS_FAMILY === 'Windows') {
-                    f_passthru('rmdir /s /q ' . SOURCE_PATH);
-                    f_passthru('rmdir /s /q ' . DOWNLOAD_PATH);
-                    f_passthru('rmdir /s /q ' . BUILD_ROOT_PATH);
-                } else {
-                    f_passthru('rm -rf ' . SOURCE_PATH . '/*');
-                    f_passthru('rm -rf ' . DOWNLOAD_PATH . '/*');
-                    f_passthru('rm -rf ' . BUILD_ROOT_PATH . '/*');
-                }
-                return static::FAILURE;
+                return $this->_clean();
             }
 
             // --from-zip
@@ -133,7 +120,7 @@ class DownloadCommand extends BaseCommand
 
             // retry
             $retry = intval($this->getOption('retry'));
-            f_putenv('SPC_RETRY_TIME=' . $retry);
+            f_putenv('SPC_DOWNLOAD_RETRIES=' . $retry);
 
             // Use shallow-clone can reduce git resource download
             if ($this->getOption('shallow-clone')) {
@@ -212,7 +199,7 @@ class DownloadCommand extends BaseCommand
                     if (isset($config['filename'])) {
                         $new_config['filename'] = $config['filename'];
                     }
-                    logger()->info("Fetching source {$source} from custom url [{$ni}/{$cnt}]");
+                    logger()->info("[{$ni}/{$cnt}] Downloading source {$source} from custom url: {$new_config['url']}");
                     Downloader::downloadSource($source, $new_config, true);
                 } elseif (isset($custom_gits[$source])) {
                     $config = Config::getSource($source);
@@ -224,24 +211,48 @@ class DownloadCommand extends BaseCommand
                     if (isset($config['path'])) {
                         $new_config['path'] = $config['path'];
                     }
-                    logger()->info("Fetching source {$source} from custom git [{$ni}/{$cnt}]");
+                    logger()->info("[{$ni}/{$cnt}] Downloading source {$source} from custom git: {$new_config['url']}");
                     Downloader::downloadSource($source, $new_config, true);
                 } else {
                     $config = Config::getSource($source);
                     // Prefer pre-built, we need to search pre-built library
                     if ($this->getOption('prefer-pre-built') && ($config['provide-pre-built'] ?? false) === true) {
                         // We need to replace pattern
-                        $find = str_replace(['{name}', '{arch}', '{os}'], [$source, arch2gnu(php_uname('m')), strtolower(PHP_OS_FAMILY)], Config::getPreBuilt('match-pattern'));
+                        $replace = [
+                            '{name}' => $source,
+                            '{arch}' => arch2gnu(php_uname('m')),
+                            '{os}' => strtolower(PHP_OS_FAMILY),
+                            '{libc}' => getenv('SPC_LIBC') ?: 'default',
+                            '{libcver}' => PHP_OS_FAMILY === 'Linux' ? (SystemUtil::getLibcVersionIfExists() ?? 'default') : 'default',
+                        ];
+                        $find = str_replace(array_keys($replace), array_values($replace), Config::getPreBuilt('match-pattern'));
                         // find filename in asset list
                         if (($url = $this->findPreBuilt($pre_built_libs, $find)) !== null) {
-                            logger()->info("Fetching pre-built content {$source} [{$ni}/{$cnt}]");
-                            Downloader::downloadSource($source, ['type' => 'url', 'url' => $url], $force_all || in_array($source, $force_list), SPC_LOCK_PRE_BUILT);
+                            logger()->info("[{$ni}/{$cnt}] Downloading pre-built content {$source}");
+                            Downloader::downloadSource($source, ['type' => 'url', 'url' => $url], $force_all || in_array($source, $force_list), SPC_DOWNLOAD_PRE_BUILT);
                             continue;
                         }
                         logger()->warning("Pre-built content not found for {$source}, fallback to source download");
                     }
-                    logger()->info("Fetching source {$source} [{$ni}/{$cnt}]");
-                    Downloader::downloadSource($source, $config, $force_all || in_array($source, $force_list));
+                    logger()->info("[{$ni}/{$cnt}] Downloading source {$source}");
+                    try {
+                        Downloader::downloadSource($source, $config, $force_all || in_array($source, $force_list));
+                    } /* @noinspection PhpRedundantCatchClauseInspection */ catch (DownloaderException|RuntimeException $e) {
+                        // if `--no-alt` option is set, we will not download alternative sources
+                        if ($this->getOption('no-alt')) {
+                            throw $e;
+                        }
+                        // if download failed, we will try to download alternative sources
+                        logger()->warning("Download failed: {$e->getMessage()}");
+                        logger()->notice("Trying to download alternative sources for {$source}");
+                        $alt_sources = Config::getSource($source)['alt'] ?? null;
+                        if ($alt_sources === null) {
+                            $alt_config = array_merge($config, $this->getDefaultAlternativeSource($source));
+                        } else {
+                            $alt_config = array_merge($config, $alt_sources);
+                        }
+                        Downloader::downloadSource($source, $alt_config, $force_all || in_array($source, $force_list));
+                    }
                 }
             }
             $time = round(microtime(true) - START_TIME, 3);
@@ -352,11 +363,58 @@ class DownloadCommand extends BaseCommand
      */
     private function findPreBuilt(array $assets, string $filename): ?string
     {
+        logger()->debug("Finding pre-built asset {$filename}");
         foreach ($assets as $asset) {
             if ($asset['name'] === $filename) {
                 return $asset['browser_download_url'];
             }
         }
         return null;
+    }
+
+    /**
+     * @throws RuntimeException
+     */
+    private function _clean(): int
+    {
+        logger()->warning('You are doing some operations that not recoverable: removing directories below');
+        logger()->warning(SOURCE_PATH);
+        logger()->warning(DOWNLOAD_PATH);
+        logger()->warning(BUILD_ROOT_PATH);
+        logger()->alert('I will remove these dir after 5 seconds !');
+        sleep(5);
+        if (PHP_OS_FAMILY === 'Windows') {
+            f_passthru('rmdir /s /q ' . SOURCE_PATH);
+            f_passthru('rmdir /s /q ' . DOWNLOAD_PATH);
+            f_passthru('rmdir /s /q ' . BUILD_ROOT_PATH);
+        } else {
+            f_passthru('rm -rf ' . SOURCE_PATH . '/*');
+            f_passthru('rm -rf ' . DOWNLOAD_PATH . '/*');
+            f_passthru('rm -rf ' . BUILD_ROOT_PATH . '/*');
+        }
+        return static::FAILURE;
+    }
+
+    private function getDefaultAlternativeSource(string $source_name): array
+    {
+        return [
+            'type' => 'custom',
+            'func' => function (bool $force, array $source, int $download_as) use ($source_name) {
+                logger()->debug("Fetching alternative source for {$source_name}");
+                // get from dl.static-php.dev
+                $url = "https://dl.static-php.dev/static-php-cli/deps/spc-download-mirror/{$source_name}/?format=json";
+                $json = json_decode(Downloader::curlExec(url: $url, retries: intval(getenv('SPC_DOWNLOAD_RETRIES') ?: 0)), true);
+                if (!is_array($json)) {
+                    throw new RuntimeException('failed http fetch');
+                }
+                $item = $json[0] ?? null;
+                if ($item === null) {
+                    throw new RuntimeException('failed to parse json');
+                }
+                $full_url = 'https://dl.static-php.dev' . $item['full_path'];
+                $filename = basename($item['full_path']);
+                Downloader::downloadFile($source_name, $full_url, $filename, $source['path'] ?? null, $download_as);
+            },
+        ];
     }
 }

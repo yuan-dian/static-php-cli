@@ -15,7 +15,7 @@ class SourceManager
      * @throws FileSystemException
      * @throws RuntimeException
      */
-    public static function initSource(?array $sources = null, ?array $libs = null, ?array $exts = null): void
+    public static function initSource(?array $sources = null, ?array $libs = null, ?array $exts = null, bool $source_only = false): void
     {
         if (!file_exists(DOWNLOAD_PATH . '/.lock.json')) {
             throw new WrongUsageException('Download lock file "downloads/.lock.json" not found, maybe you need to download sources first ?');
@@ -54,15 +54,22 @@ class SourceManager
             if (Config::getSource($source) === null) {
                 throw new WrongUsageException("Source [{$source}] does not exist, please check the name and correct it !");
             }
-            if (!isset($lock[$source])) {
-                throw new WrongUsageException('Source [' . $source . '] not downloaded or not locked, you should download it first !');
+            // check source downloaded
+            $pre_built_name = Downloader::getPreBuiltLockName($source);
+            if ($source_only || !isset($lock[$pre_built_name])) {
+                if (!isset($lock[$source])) {
+                    throw new WrongUsageException("Source [{$source}] not downloaded or not locked, you should download it first !");
+                }
+                $lock_name = $source;
+            } else {
+                $lock_name = $pre_built_name;
             }
 
             // check source dir exist
-            $check = $lock[$source]['move_path'] === null ? (SOURCE_PATH . '/' . $source) : (SOURCE_PATH . '/' . $lock[$source]['move_path']);
+            $check = $lock[$lock_name]['move_path'] === null ? (SOURCE_PATH . '/' . $source) : (SOURCE_PATH . '/' . $lock[$lock_name]['move_path']);
             if (!is_dir($check)) {
                 logger()->debug('Extracting source [' . $source . '] to ' . $check . ' ...');
-                FileSystem::extractSource($source, DOWNLOAD_PATH . '/' . ($lock[$source]['filename'] ?? $lock[$source]['dirname']), $lock[$source]['move_path']);
+                FileSystem::extractSource($source, DOWNLOAD_PATH . '/' . ($lock[$lock_name]['filename'] ?? $lock[$lock_name]['dirname']), $lock[$lock_name]['move_path']);
             } else {
                 logger()->debug('Source [' . $source . '] already extracted in ' . $check . ', skip !');
             }
